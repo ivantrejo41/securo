@@ -194,9 +194,19 @@ export default function GroupDetailPage() {
     enabled: !!groupId,
   })
 
+  // The recent-activity list stays capped — it feeds the "Recent
+  // transactions" card and nothing else.
   const { data: groupTxs } = useQuery({
     queryKey: ['groups', groupId, 'transactions'],
     queryFn: () => groupsApi.transactions(groupId, 20),
+    enabled: !!groupId,
+  })
+
+  // Totals come from the server so they describe the whole group rather
+  // than whatever happens to be on the first page of the list.
+  const { data: summary } = useQuery({
+    queryKey: ['groups', groupId, 'summary'],
+    queryFn: () => groupsApi.summary(groupId),
     enabled: !!groupId,
   })
 
@@ -411,17 +421,7 @@ export default function GroupDetailPage() {
   // ── KPIs ─────────────────────────────────────────────────────
   const groupCurrency = group?.default_currency ?? 'USD'
 
-  // Sum cross-currency rows in the group's primary terms — using
-  // amount_primary when available, otherwise the native amount. Without
-  // this, EUR rows would silently add as USD (a €100 hotel would count
-  // as $100, throwing off the KPI vs. spending-by-category breakdown).
-  const totalMoved = useMemo(() => {
-    if (!groupTxs) return 0
-    return groupTxs.reduce(
-      (sum, tx) => sum + Number(tx.amount_primary ?? tx.amount),
-      0,
-    )
-  }, [groupTxs])
+  const totalMoved = Number(summary?.total_moved ?? 0)
 
   // KPIs roll up across currencies using each line's
   // amount_in_default_currency (FX-converted server-side). Filtering by
@@ -503,43 +503,23 @@ export default function GroupDetailPage() {
   }, [balances, isOwner, viewerMember, ownerMember, memberNameById, locale])
 
   const monthlyData = useMemo(() => {
-    if (!groupTxs || groupTxs.length === 0) return []
-    const byMonth = new Map<string, number>()
-    for (const tx of groupTxs) {
-      const m = tx.date.slice(0, 7)
-      byMonth.set(m, (byMonth.get(m) ?? 0) + Number(tx.amount_primary ?? tx.amount))
-    }
-    return Array.from(byMonth.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([month, total]) => ({
-        month: new Date(month + '-01').toLocaleString(dateLocale, { month: 'short' }),
-        total: Number(total.toFixed(2)),
-      }))
-  }, [groupTxs, dateLocale])
+    if (!summary) return []
+    return summary.months.map(({ month, total }) => ({
+      month: new Date(month + '-01').toLocaleString(dateLocale, { month: 'short' }),
+      total: Number(Number(total).toFixed(2)),
+    }))
+  }, [summary, dateLocale])
 
-  // Group spending broken down by category — for the stacked horizontal
-  // bar. We sum debits only (income/credits aren't "spending"). When a
-  // tx has amount_primary we use that so cross-currency rows are
-  // comparable; otherwise fall back to the native amount, which is fine
-  // for single-currency groups.
+  // Shape the server's per-category totals for the stacked bar.
   const categoryBreakdown = useMemo(() => {
-    if (!groupTxs || groupTxs.length === 0) return [] as { id: string; name: string; color: string; total: number }[]
-    const map = new Map<string, { id: string; name: string; color: string; total: number }>()
-    for (const tx of groupTxs) {
-      if (tx.type !== 'debit') continue
-      const id = tx.category?.id ?? 'uncategorized'
-      const name = tx.category?.name ?? t('splitGroups.uncategorized')
-      const color = tx.category?.color ?? '#6B7280'
-      const value = Number(tx.amount_primary ?? tx.amount)
-      const existing = map.get(id)
-      if (existing) {
-        existing.total += value
-      } else {
-        map.set(id, { id, name, color, total: value })
-      }
-    }
-    return Array.from(map.values()).sort((a, b) => b.total - a.total)
-  }, [groupTxs, t])
+    if (!summary) return [] as { id: string; name: string; color: string; total: number }[]
+    return summary.categories.map((c) => ({
+      id: c.category_id ?? 'uncategorized',
+      name: c.name ?? t('splitGroups.uncategorized'),
+      color: c.color ?? '#6B7280',
+      total: Number(c.total),
+    }))
+  }, [summary, t])
 
   const categoryBreakdownTotal = useMemo(
     () => categoryBreakdown.reduce((s, c) => s + c.total, 0),
