@@ -421,6 +421,11 @@ export default function GroupDetailPage() {
   // ── KPIs ─────────────────────────────────────────────────────
   const groupCurrency = group?.default_currency ?? 'USD'
 
+  // One flag for everything the summary feeds. Without it the KPI reads
+  // 0 while the request is still in flight, and a failed background
+  // refetch leaves TanStack's cached data in place — so the KPI would say
+  // "—" while the charts below kept drawing the stale numbers.
+  const summaryReady = !!summary && !summaryFailed
   const totalMoved = Number(summary?.total_moved ?? 0)
 
   // KPIs roll up across currencies using each line's
@@ -566,7 +571,7 @@ export default function GroupDetailPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard
           label={t('splitGroups.kpiTotalMoved')}
-          value={summaryFailed ? '—' : formatCurrency(totalMoved, groupCurrency, locale)}
+          value={summaryReady ? formatCurrency(totalMoved, groupCurrency, locale) : '—'}
           icon={Wallet}
         />
         <KpiCard
@@ -586,7 +591,7 @@ export default function GroupDetailPage() {
       </div>
 
       {/* Spending trend (compact) */}
-      {monthlyData.length > 1 && (
+      {summaryReady && monthlyData.length > 1 && (
         <SectionCard>
           <SectionHeader
             title={t('splitGroups.spendingTrend')}
@@ -620,7 +625,7 @@ export default function GroupDetailPage() {
 
       {/* Category distribution — single horizontal stacked bar split
           by category, with a legend showing absolute and % per slice. */}
-      {categoryBreakdownTotal > 0 && (
+      {summaryReady && categoryBreakdownTotal > 0 && (
         <SectionCard>
           <SectionHeader
             title={t('splitGroups.byCategory')}
