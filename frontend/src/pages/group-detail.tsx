@@ -204,7 +204,7 @@ export default function GroupDetailPage() {
 
   // Totals come from the server so they describe the whole group rather
   // than whatever happens to be on the first page of the list.
-  const { data: summary } = useQuery({
+  const { data: summary, isError: summaryFailed } = useQuery({
     queryKey: ['groups', groupId, 'summary'],
     queryFn: () => groupsApi.summary(groupId),
     enabled: !!groupId,
@@ -505,7 +505,10 @@ export default function GroupDetailPage() {
   const monthlyData = useMemo(() => {
     if (!summary) return []
     return summary.months.map(({ month, total }) => ({
-      month: new Date(month + '-01').toLocaleString(dateLocale, { month: 'short' }),
+      // Local date from the parts: new Date('2026-03-01') is UTC midnight,
+      // which lands in February for anyone west of Greenwich.
+      month: new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 1)
+        .toLocaleString(dateLocale, { month: 'short' }),
       total: Number(Number(total).toFixed(2)),
     }))
   }, [summary, dateLocale])
@@ -563,7 +566,7 @@ export default function GroupDetailPage() {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
         <KpiCard
           label={t('splitGroups.kpiTotalMoved')}
-          value={formatCurrency(totalMoved, groupCurrency, locale)}
+          value={summaryFailed ? '—' : formatCurrency(totalMoved, groupCurrency, locale)}
           icon={Wallet}
         />
         <KpiCard
